@@ -1,0 +1,7 @@
+# 本项目的 Python 代码只用标准库，无需 pip 安装任何第三方包。
+# （base64 / csv / json / os / re / time / datetime / importlib / sys 均为标准库）
+#
+# 真正的外部依赖是命令行工具 browser-harness（通过它驱动已登录的 Chrome、在页面内发请求）。
+# 它不在 PyPI，安装方式见 docs/dependencies.md。
+#
+# Python 版本：3.9+（开发环境为 3.13）。

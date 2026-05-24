@@ -1,0 +1,22 @@
+# 导出的聊天数据：私密且体量大，绝不入库
+/out/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# CSV 原子写的临时文件
+*.tmp
+titles.csv.tmp
+
+# 工具状态（oh-my-claudecode 等）
+.omc/
+
+# 系统/编辑器
+.DS_Store
+.idea/
+.vscode/
+*.swp
