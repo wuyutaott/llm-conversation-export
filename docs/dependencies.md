@@ -75,8 +75,10 @@ winget install astral-sh.uv
 ```powershell
 git clone https://github.com/browser-use/browser-harness
 cd browser-harness
-uv tool install -e .
+uv tool install --python 3.13 -e .   # 锁定 3.13：确保 pillow 等依赖有预编译 wheel，无需本地编译
 ```
+
+> browser-harness 要求 Python ≥ 3.11，由 uv 独立的工具环境满足，与本项目 `run.py` 使用的系统 Python（3.9+）互不影响。其依赖（cdp-use / fetch-use / websockets 为纯 Python，pillow 提供 Windows 预编译 wheel）在 Windows 上均无需 C 编译器。
 
 新开一个 PowerShell 窗口让 PATH 生效，验证：
 

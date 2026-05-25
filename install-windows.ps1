@@ -90,7 +90,9 @@ if (Have browser-harness) {
     Info "用 uv 安装 browser-harness（可编辑模式）..."
     Push-Location $HarnessDir
     try {
-        uv tool install -e .
+        # 锁定 Python 3.13：browser-harness 依赖 pillow==12.2.0 等，3.13 对全部依赖均有 Windows 预编译 wheel，
+        # 不锁定时 uv 可能选用更新的 Python，个别包若尚无对应 wheel 会退化为本地编译（需 VC++ 工具链）。
+        uv tool install --python 3.13 -e .
         uv tool update-shell   # 把 uv tool 的 bin 目录持久写入 PATH
     } finally {
         Pop-Location
