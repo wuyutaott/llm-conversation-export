@@ -17,7 +17,11 @@ import time
 from core import browser, storage, util
 
 CONSEC_FAIL_LIMIT = 3            # 连续失败达此数就进入冷却重试
-COOLDOWN_SCHEDULE = [120, 300, 600]   # 升级式冷却：2分 → 5分 → 10分（封顶 10 分）
+COOLDOWN_SCHEDULE = [120, 300, 600]   # 自适应冷却梯度：2分 → 5分 → 10分（封顶 10 分）
+# 自适应规则：一次冷却换来的成功数（since_ok）太少→升级冷却；很多→降级。
+# 实测 ChatGPT 在 2 分钟冷却后只放行 2~3 个，故 SMALL_BATCH 设为 5，会快速升到 10 分钟并保持。
+SMALL_BATCH = 5     # 冷却后成功 <= 此数 → CD 不够，升一级
+GOOD_BATCH = 15     # 冷却后成功 >= 此数 → CD 充裕，降一级
 
 
 def _cooldown(seconds, reason="连续失败"):
@@ -109,18 +113,22 @@ def run(adapter, account_override=None, mode="fetch"):
 
     session_start = time.time()
     durations = []
-    consec_fail = 0       # 连续失败计数（成功或冷却后重置）
-    cooldown_level = 0    # 冷却升级级别（成功则归零）
+    consec_fail = 0       # 连续失败计数（冷却后重置）
+    cooldown_level = 0    # 当前冷却级别（不再因零星成功归零，由命中限流时按批量自适应调整）
     interrupted = False
-    since_ok = 0          # 自上次限流以来成功导出的会话数
+    since_ok = 0          # 自上次冷却以来成功导出的会话数
     last_limit_ts = None  # 上次命中限流的时间戳
 
-    def _do_cooldown(reason):
-        nonlocal cooldown_level, consec_fail
-        wait = COOLDOWN_SCHEDULE[min(cooldown_level, len(COOLDOWN_SCHEDULE) - 1)]
-        cooldown_level += 1
+    def _bump_level():
+        nonlocal cooldown_level
+        cooldown_level = min(cooldown_level + 1, len(COOLDOWN_SCHEDULE) - 1)
+
+    def _cool(reason):
+        """按当前 cooldown_level 冷却并记录日志。级别由调用方调整。"""
+        nonlocal consec_fail
         consec_fail = 0
-        storage.log_event(logp, "COOLDOWN", f"等待={wait}s({_fmt(wait)}) 级别={cooldown_level} 原因={reason}")
+        wait = COOLDOWN_SCHEDULE[min(cooldown_level, len(COOLDOWN_SCHEDULE) - 1)]
+        storage.log_event(logp, "COOLDOWN", f"等待={wait}s({_fmt(wait)}) 级别={cooldown_level + 1} 原因={reason}")
         _cooldown(wait, reason)
         storage.log_event(logp, "RESUME", "冷却结束，重新尝试")
 
@@ -151,14 +159,24 @@ def run(adapter, account_override=None, mode="fetch"):
                         with open(os.path.join(p["md"], base + ".md"), "w", encoding="utf-8") as f:
                             f.write(adapter.render_markdown(conv, title, key2rel))
                     except browser.RateLimited:
-                        # 命中限流：记录「自上次限流以来成功几个、间隔多久」——分析限流策略的关键数据
+                        # 命中限流：先记录「上次冷却换来几个成功、间隔多久」——分析+自适应的关键数据
                         now = time.time()
                         gap_info = f" 距上次限流={_fmt(now - last_limit_ts)}" if last_limit_ts else " (本次首个限流)"
-                        print(f"    🚫 命中限流：自上次以来成功 {since_ok} 个{gap_info}")
-                        storage.log_event(logp, "LIMIT", f"#{idx} 自上次限流成功={since_ok}个{gap_info}")
+                        # 自适应：上次冷却放行太少→升级 CD；很多→降级；中间保持。不再因零星成功归零。
+                        if since_ok <= SMALL_BATCH:
+                            _bump_level()
+                            adj = "↑升级"
+                        elif since_ok >= GOOD_BATCH:
+                            cooldown_level = max(cooldown_level - 1, 0)
+                            adj = "↓降级"
+                        else:
+                            adj = "保持"
+                        print(f"    🚫 命中限流：上次冷却放行 {since_ok} 个{gap_info}，CD {adj}")
+                        storage.log_event(logp, "LIMIT",
+                                          f"#{idx} 上次冷却放行={since_ok}个{gap_info} CD{adj}→级别{cooldown_level + 1}")
                         last_limit_ts = now
                         since_ok = 0
-                        _do_cooldown("遇到限流")
+                        _cool("遇到限流")
                         continue
                     except Exception as e:
                         dt = time.time() - t0
@@ -168,13 +186,13 @@ def run(adapter, account_override=None, mode="fetch"):
                         storage.save_rows(p["csv"], fields, rows)
                         consec_fail += 1
                         if consec_fail >= CONSEC_FAIL_LIMIT:
-                            _do_cooldown(f"连续失败 {CONSEC_FAIL_LIMIT} 次（掉登录/断网等）")
+                            _bump_level()
+                            _cool(f"连续失败 {CONSEC_FAIL_LIMIT} 次（掉登录/断网等）")
                             cooled = True
                         break   # 非限流错误：结束本会话
                     else:
                         dt = time.time() - t0
                         consec_fail = 0
-                        cooldown_level = 0   # 成功则重置冷却升级，下次限流仍从 2 分钟起
                         since_ok += 1
                         row[storage.STATUS_COL] = "完成"
                         row[storage.FILE_COL] = base
@@ -192,7 +210,8 @@ def run(adapter, account_override=None, mode="fetch"):
             if cooled:
                 continue                      # 已冷却，外层重扫重试
             if not progressed:
-                _do_cooldown("本轮无任何成功")  # 剩余都失败但没触发连续阈值，也冷却避免空转
+                _bump_level()
+                _cool("本轮无任何成功")  # 剩余都失败但没触发连续阈值，也冷却避免空转
             # 有成功但仍有失败项：外层 while 再过一轮重试它们
     except KeyboardInterrupt:
         interrupted = True
