@@ -163,12 +163,7 @@ def run(adapter, account_override=None, mode="fetch"):
 
                 durations.append(dt)
                 progressed = True
-                done = sum(1 for r in rows if r.get(storage.STATUS_COL) == "完成")
-                pct = done / total * 100
-                filled = int(24 * done / total)
-                bar = "█" * filled + "░" * (24 - filled)
                 print(f"    ✓ {base}（{len(key2rel)} 资源，用时 {dt:.1f}s）")
-                print(f"    进度 [{bar}] {done}/{total} {pct:.1f}%")
                 time.sleep(adapter.gap)
 
             if cooled:
