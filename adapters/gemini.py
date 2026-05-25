@@ -6,8 +6,10 @@ Gemini 没有干净 REST，用 Google 的 batchexecute RPC + SPA DOM 抓取：
 - 正文：正文 RPC 脱离 SPA 复现不出，改为在已热加载的 SPA 内用 history.pushState
   打开 /app/{id} 触发 Angular 路由，等渲染后抓 user-query / model-response 的 DOM 文本
 - 账号：从页面 DOM 提取登录邮箱
-注：当前只导出文本，未下载会话中的图片（Gemini 图片在 DOM 里是 blob，后续可加）。
+- 图片：会话中的 googleusercontent 图（用户上传/生成），经 CDP loadNetworkResource 下载
+  （带 cookie、绕开页面 CORS），并嵌入对应消息的 Markdown
 """
+import hashlib
 import json
 import re
 import time
@@ -22,21 +24,36 @@ EMAIL_RE = re.compile(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}')
 _SCRAPE_JS = r'''
 (() => {
   const turns = [];
+  // 只收用户内容图 / 生成图（googleusercontent），排除图标等
+  const imgsOf = el => [...el.querySelectorAll("img")].map(i => i.src)
+      .filter(s => s && s.indexOf("googleusercontent.com") !== -1);
   document.querySelectorAll("user-query, model-response").forEach(el => {
     const tag = el.tagName.toLowerCase();
     if (tag === "user-query") {
       const q = el.querySelector(".query-text") || el;
       let t = (q.innerText || "").trim();
       t = t.replace(/^(你说|您说|You said|Du:|あなた)\s*\n+/, "").trim();  // 去掉 UI 的"你说"标签
-      turns.push({role: "user", text: t});
+      turns.push({role: "user", text: t, images: imgsOf(el)});
     } else {
       const m = el.querySelector(".markdown, .model-response-text") || el;
-      turns.push({role: "model", text: (m.innerText || "").trim()});
+      turns.push({role: "model", text: (m.innerText || "").trim(), images: imgsOf(el)});
     }
   });
   return JSON.stringify(turns);
 })()
 '''
+
+
+def _sniff_mime(data):
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return ""
 
 
 class GeminiAdapter:
@@ -168,12 +185,25 @@ class GeminiAdapter:
             time.sleep(0.5)
         return json.loads(browser.run_js(_SCRAPE_JS) or "[]")
 
-    # ---- 资源（暂不下载图片）----
+    # ---- 资源（会话图片，经 CDP 下载绕开 CORS）----
+    @staticmethod
+    def _img_key(url):
+        return hashlib.md5(url.encode("utf-8")).hexdigest()[:16]
+
     def collect_assets(self, conv):
-        return []
+        out, seen = [], set()
+        for t in conv.get("turns", []):
+            for url in t.get("images", []) or []:
+                k = self._img_key(url)
+                if k in seen:
+                    continue
+                seen.add(k)
+                out.append({"key": k, "url": url, "name": "", "mime": "", "is_image": True})
+        return out
 
     def download_asset(self, desc):
-        raise RuntimeError("gemini 暂不支持资源下载")
+        data = browser.download_cdp(desc["url"])
+        return data, desc.get("name") or desc["key"], _sniff_mime(data)
 
     # ---- 渲染 ----
     def render_markdown(self, conv, title, key2rel):
@@ -184,9 +214,15 @@ class GeminiAdapter:
         label = {"user": "🧑 用户", "model": "🤖 Gemini"}
         for t in conv.get("turns", []):
             text = (t.get("text") or "").strip()
-            if not text:
+            imgs = []
+            for url in t.get("images", []) or []:
+                info = key2rel.get(self._img_key(url))
+                if info:
+                    imgs.append(f"![image]({info['rel']})")
+            body = "\n\n".join(x for x in [text] + imgs if x).strip()
+            if not body:
                 continue
-            lines += [f"## {label.get(t['role'], t['role'])}", "", text, ""]
+            lines += [f"## {label.get(t['role'], t['role'])}", "", body, ""]
         return "\n".join(lines)
 
 

@@ -38,6 +38,30 @@ def navigate(url, wait=5):
     time.sleep(wait)
 
 
+def download_cdp(url):
+    """经浏览器网络栈下载资源（带 cookie、不受页面 CORS 限制）。返回 bytes。
+    用于跨源、需登录态的图片（如 Gemini 的 googleusercontent 图）。"""
+    cdp = _H["cdp"]
+    cdp("Network.enable")
+    fid = cdp("Page.getFrameTree")["frameTree"]["frame"]["id"]
+    res = cdp("Network.loadNetworkResource", frameId=fid, url=url,
+              options={"disableCache": False, "includeCredentials": True})["resource"]
+    if not res.get("success"):
+        raise RuntimeError(f"loadNetworkResource 失败 status={res.get('httpStatusCode')}")
+    handle = res["stream"]
+    chunks = []
+    try:
+        while True:
+            rd = cdp("IO.read", handle=handle, size=1 << 20)
+            d = rd.get("data", "")
+            chunks.append(base64.b64decode(d) if rd.get("base64Encoded") else d.encode())
+            if rd.get("eof"):
+                break
+    finally:
+        cdp("IO.close", handle=handle)
+    return b"".join(chunks)
+
+
 def ensure_origin(domain, home_url):
     """确保当前标签页在目标站点，否则相对路径/cookie 请求会发到别的站点。"""
     try:
