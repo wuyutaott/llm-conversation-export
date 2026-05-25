@@ -1,6 +1,7 @@
-"""存储层：统一输出路径 out/{平台}/{账号}/，以及 titles.csv 读写。"""
+"""存储层：统一输出路径 out/{平台}/{账号}/，titles.csv 读写，以及事件日志。"""
 import csv
 import os
+from datetime import datetime
 
 ROOT = "/Users/stone/Documents/wuyutaott.com/memory-exportor"
 OUT_ROOT = os.path.join(ROOT, "out")
@@ -20,7 +21,15 @@ def paths(platform, account):
         "json": os.path.join(base, "json"),
         "md": os.path.join(base, "markdown"),
         "img": os.path.join(base, "images"),
+        "log": os.path.join(base, "export.log"),
     }
+
+
+def log_event(path, event, msg=""):
+    """追加一条结构化日志：时间\t事件\t说明。用于分析限流策略、调 CD。"""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(f"{datetime.now():%Y-%m-%d %H:%M:%S}\t{event}\t{msg}\n")
 
 
 def ensure_dirs(p):

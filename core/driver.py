@@ -104,18 +104,25 @@ def run(adapter, account_override=None, mode="fetch"):
     done0 = sum(1 for r in rows if r.get(storage.STATUS_COL) == "完成")
     print(f"→ 共 {total} 个会话，已完成 {done0}，待抓 {total - done0}")
 
+    logp = p["log"]
+    storage.log_event(logp, "SESSION", f"开始 平台={adapter.name} 账号={account} 共={total} 已完成={done0}")
+
     session_start = time.time()
     durations = []
     consec_fail = 0       # 连续失败计数（成功或冷却后重置）
     cooldown_level = 0    # 冷却升级级别（成功则归零）
     interrupted = False
+    since_ok = 0          # 自上次限流以来成功导出的会话数
+    last_limit_ts = None  # 上次命中限流的时间戳
 
     def _do_cooldown(reason):
         nonlocal cooldown_level, consec_fail
         wait = COOLDOWN_SCHEDULE[min(cooldown_level, len(COOLDOWN_SCHEDULE) - 1)]
         cooldown_level += 1
         consec_fail = 0
+        storage.log_event(logp, "COOLDOWN", f"等待={wait}s({_fmt(wait)}) 级别={cooldown_level} 原因={reason}")
         _cooldown(wait, reason)
+        storage.log_event(logp, "RESUME", "冷却结束，重新尝试")
 
     try:
         # 外层：反复扫未完成的会话，直到全部完成（失败的会被下一轮重试）
@@ -131,6 +138,7 @@ def run(adapter, account_override=None, mode="fetch"):
                 title = row.get("标题", "") or "(无标题)"
                 done = sum(1 for r in rows if r.get(storage.STATUS_COL) == "完成")
                 print(f"[{done + 1}/{total}] #{idx} {title}")
+                storage.log_event(logp, "START", f"#{idx} {title}")
                 # 内层：限流就原地长冷却后重试同一会话，直到成功或遇到非限流错误
                 while True:
                     t0 = time.time()   # 每次尝试重新计时，CSV 耗时不含冷却等待
@@ -143,12 +151,19 @@ def run(adapter, account_override=None, mode="fetch"):
                         with open(os.path.join(p["md"], base + ".md"), "w", encoding="utf-8") as f:
                             f.write(adapter.render_markdown(conv, title, key2rel))
                     except browser.RateLimited:
-                        # 一碰到限流，立即按 2→5→10 分钟冷却，冷却后重试本会话
+                        # 命中限流：记录「自上次限流以来成功几个、间隔多久」——分析限流策略的关键数据
+                        now = time.time()
+                        gap_info = f" 距上次限流={_fmt(now - last_limit_ts)}" if last_limit_ts else " (本次首个限流)"
+                        print(f"    🚫 命中限流：自上次以来成功 {since_ok} 个{gap_info}")
+                        storage.log_event(logp, "LIMIT", f"#{idx} 自上次限流成功={since_ok}个{gap_info}")
+                        last_limit_ts = now
+                        since_ok = 0
                         _do_cooldown("遇到限流")
                         continue
                     except Exception as e:
                         dt = time.time() - t0
                         print(f"    ⚠ 失败（用时 {dt:.1f}s）: {e}")
+                        storage.log_event(logp, "FAIL", f"#{idx} {e}")
                         row[storage.STATUS_COL] = "失败"
                         storage.save_rows(p["csv"], fields, rows)
                         consec_fail += 1
@@ -160,6 +175,7 @@ def run(adapter, account_override=None, mode="fetch"):
                         dt = time.time() - t0
                         consec_fail = 0
                         cooldown_level = 0   # 成功则重置冷却升级，下次限流仍从 2 分钟起
+                        since_ok += 1
                         row[storage.STATUS_COL] = "完成"
                         row[storage.FILE_COL] = base
                         row[storage.DURATION_COL] = f"{dt:.1f}"   # 该会话导出耗时记入 CSV
@@ -167,6 +183,7 @@ def run(adapter, account_override=None, mode="fetch"):
                         durations.append(dt)
                         progressed = True
                         print(f"    ✓ {base}（{len(key2rel)} 资源，用时 {dt:.1f}s）")
+                        storage.log_event(logp, "OK", f"#{idx} 用时={dt:.1f}s 资源={len(key2rel)} 自上次限流第{since_ok}个")
                         break   # 成功：结束本会话
                 if cooled:
                     break          # 非限流连续失败已冷却，跳出本轮，外层重扫
@@ -199,3 +216,6 @@ def run(adapter, account_override=None, mode="fetch"):
     if len(durations):
         print(f"  本次平均每会话 {net/len(durations):.1f}s")
     print(f"  全部已完成会话累计抓取耗时 {_fmt(total_recorded)}（来自 CSV 耗时列）")
+    print(f"  日志: {logp}")
+    storage.log_event(logp, "SESSION", f"结束 完成={done}/{total} 失败={failed} "
+                      f"本次={len(durations)}个 墙钟={_fmt(elapsed)} {'(手动停止)' if interrupted else ''}")
