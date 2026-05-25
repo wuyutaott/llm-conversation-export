@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """跨平台统一导出入口（Windows / macOS / Linux 通用）。
 
-第一屏列出「新建导出任务」+ 每个未完成账号的「继续…」；↑↓/jk 移动，回车确认。
-  - 选「继续」= 直接对该平台/账号断点续抓
+第一屏列出「新建导出任务」+ 每个已有清单账号的「同步…」；↑↓/jk 移动，回车确认。
+  - 选「同步」= 先增量刷新会话清单（把平台上新产生的会话补进来），再断点续抓
   - 选「新建」= 再选平台 → 选「当前登录账号」或手动输入账号
 
 随后通过环境变量把参数交给 browser-harness 执行 export.py：
   EXPORT_ROOT      仓库根（供 export.py / core.storage 定位 out/ 目录）
   EXPORT_PLATFORM  平台名（= adapters/ 下的模块名）
   EXPORT_ACCOUNT   可选账号；为空表示自动检测当前登录
-  EXPORT_MODE      固定 fetch（抓正文 + 图片，缺清单先拉，已完成的断点续传）
+  EXPORT_MODE      sync（同步：先刷新清单再续抓）/ fetch（新建：首抓，缺清单先拉）
 
 用法：python run.py   （macOS/Linux 也可 ./run.sh，Windows 也可 run.cmd）
 """
@@ -147,9 +147,10 @@ def _scan_tasks(storage):
                 continue
             total = len(rows)
             fin = sum(1 for r in rows if r.get(storage.STATUS_COL) == "完成")
-            if fin < total:
-                labels.append(f"继续 {platform_label(plat)}: {acct} ({fin}/{total})")
-                entries.append(("resume", plat, acct))
+            # 列出所有已有清单的账号（含已全部完成的）：同步会先增量刷新清单，
+            # 把平台上新产生的会话补进来再抓，所以「已导完」的账号也需要能选。
+            labels.append(f"同步 {platform_label(plat)}: {acct} ({fin}/{total})")
+            entries.append(("resume", plat, acct))
     return labels, entries
 
 
@@ -204,7 +205,8 @@ def main():
     env = dict(os.environ)
     env["EXPORT_PLATFORM"] = platform
     env["EXPORT_ACCOUNT"] = acct
-    env["EXPORT_MODE"] = "fetch"
+    # 同步已有账号：先增量刷新清单再续抓；新建任务：首抓（无清单时自动先拉）
+    env["EXPORT_MODE"] = "sync" if kind == "resume" else "fetch"
     env["EXPORT_ROOT"] = ROOT
 
     print(f"==== 开始：{platform} / {acct or '当前登录'} ====")

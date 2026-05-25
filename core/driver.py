@@ -46,10 +46,23 @@ def _fmt(sec):
 
 
 def _build_titles(adapter, p):
-    print("→ 未发现 titles.csv，先拉取会话列表 ...")
+    existed = os.path.exists(p["csv"])
+    old_n = 0
+    if existed:
+        try:
+            _, old_rows = storage.load_rows(p["csv"])
+            old_n = len(old_rows)
+        except Exception:
+            pass
+        print("→ 同步会话清单（拉取最新列表，增量合并新会话）...")
+    else:
+        print("→ 未发现 titles.csv，先拉取会话列表 ...")
     items = adapter.list_conversations()
     storage.write_titles(p["csv"], items)
-    print(f"✓ 标题清单已生成: {len(items)} 个\n")
+    if existed:
+        print(f"✓ 清单已同步: 共 {len(items)} 个（新增 {max(0, len(items) - old_n)} 个）\n")
+    else:
+        print(f"✓ 标题清单已生成: {len(items)} 个\n")
 
 
 def _process_assets(adapter, conv, p, base):
@@ -85,7 +98,7 @@ def _process_assets(adapter, conv, p, base):
 
 
 def run(adapter, account_override=None, mode="fetch"):
-    """mode: 'fetch'=抓正文+图片（缺清单先拉）；'list'=只刷新会话清单。"""
+    """mode: 'fetch'=抓正文+图片（缺清单先拉）；'sync'=先增量刷新清单再抓（断点续传）；'list'=只刷新会话清单。"""
     browser.ensure_origin(adapter.domain, adapter.home_url)
     account = adapter.prepare()
     if account_override and account_override != account:
@@ -101,7 +114,7 @@ def run(adapter, account_override=None, mode="fetch"):
     if mode == "list":
         _build_titles(adapter, p)
         return
-    if not os.path.exists(p["csv"]):
+    if mode == "sync" or not os.path.exists(p["csv"]):
         _build_titles(adapter, p)
 
     fields, rows = storage.load_rows(p["csv"])

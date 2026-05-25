@@ -1,7 +1,7 @@
 """统一导出入口。由 browser-harness 以 exec 方式运行，run.sh 通过环境变量传参：
     EXPORT_PLATFORM  平台名（= adapters/ 下的模块名，如 chatgpt / grok）
     EXPORT_ACCOUNT   可选，指定账号；与当前登录不一致会中止
-    EXPORT_MODE      fetch（默认，抓正文+图片）/ list（只刷新会话清单）
+    EXPORT_MODE      fetch（默认，抓正文+图片）/ sync（先增量刷新清单再续抓）/ list（只刷新会话清单）
 
 不要直接 python 运行——需要 browser-harness 注入的 js/page_info/new_tab/wait_for_load。
 """
