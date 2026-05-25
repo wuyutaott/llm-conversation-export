@@ -37,9 +37,21 @@ browser-harness -c 'print(page_info())'
 
 唯一的平台前提是 **`browser-harness` 本身要能在该系统上运行并连上本机 Chrome**——它是独立 CLI，需各自在对应系统上安装确认。`run.py` 启动时会用 `shutil.which` 检测，找不到会给出明确提示而非崩溃。
 
-## Windows 从零安装
+## Windows 一键安装（推荐）
 
-本项目自身零额外依赖（只用 Python 标准库），Windows 上只需装好 **Python** 和 **browser-harness** 两样。命令以 PowerShell 为例。
+仓库根的 `install-windows.ps1` 会自动装好 uv、Python、browser-harness 并配好 PATH、做自检。在项目目录下用 PowerShell 运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install-windows.ps1
+```
+
+脚本完成后，唯一需要你手动做的是让 Chrome 允许远程调试（脚本会打印指引并尝试帮你打开设置页），见下方「方式 1 / 方式 2」。装完即可 `run.cmd` 启动。
+
+> 若某步提示命令找不到（如刚装完 git/Python/uv），多半是 PATH 尚未在当前窗口生效——重开一个 PowerShell 窗口再跑一次脚本即可，已装好的步骤会自动跳过。
+
+## Windows 从零安装（手动分步）
+
+如果不想用一键脚本，可手动来。本项目自身零额外依赖（只用 Python 标准库），Windows 上只需装好 **Python** 和 **browser-harness** 两样。命令以 PowerShell 为例。
 
 ### 1. Python 3.9+
 

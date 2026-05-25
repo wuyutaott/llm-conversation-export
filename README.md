@@ -11,6 +11,8 @@ run.cmd         # Windows（或任意平台 python run.py）
 
 前提：Chrome 已登录目标平台，且本机有 `browser-harness`。详见 [docs/usage.md](docs/usage.md)。
 
+Windows 首次安装依赖可一键完成：`powershell -ExecutionPolicy Bypass -File .\install-windows.ps1`（详见 [docs/dependencies.md](docs/dependencies.md)）。
+
 ## 结构
 
 - `run.sh` / `export.py` — 入口
