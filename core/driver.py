@@ -130,40 +130,46 @@ def run(adapter, account_override=None, mode="fetch"):
                 cid = row.get("会话ID", "")
                 title = row.get("标题", "") or "(无标题)"
                 done = sum(1 for r in rows if r.get(storage.STATUS_COL) == "完成")
-                t0 = time.time()
                 print(f"[{done + 1}/{total}] #{idx} {title}")
-                try:
-                    conv = adapter.fetch_conversation(cid)
-                    base = f"{str(idx).zfill(3)}_{util.safe_name(title, cid)}"
-                    with open(os.path.join(p["json"], base + ".json"), "w", encoding="utf-8") as f:
-                        json.dump(conv, f, ensure_ascii=False, indent=2)
-                    key2rel = _process_assets(adapter, conv, p, base)
-                    with open(os.path.join(p["md"], base + ".md"), "w", encoding="utf-8") as f:
-                        f.write(adapter.render_markdown(conv, title, key2rel))
-                except Exception as e:
-                    dt = time.time() - t0
-                    print(f"    ⚠ 失败（用时 {dt:.1f}s）: {e}")
-                    row[storage.STATUS_COL] = "失败"
-                    storage.save_rows(p["csv"], fields, rows)
-                    consec_fail += 1
-                    if consec_fail >= CONSEC_FAIL_LIMIT:
-                        _do_cooldown(f"连续失败 {CONSEC_FAIL_LIMIT} 次（多半被限流/掉登录/断网）")
-                        cooled = True
-                        break   # 跳出本轮，外层重新扫 todo 重试失败的
-                    time.sleep(adapter.gap)
-                    continue
-
-                dt = time.time() - t0
-                consec_fail = 0
-                cooldown_level = 0   # 成功则重置冷却升级，下次限流仍从 2 分钟起
-                row[storage.STATUS_COL] = "完成"
-                row[storage.FILE_COL] = base
-                row[storage.DURATION_COL] = f"{dt:.1f}"   # 该会话导出耗时记入 CSV
-                storage.save_rows(p["csv"], fields, rows)
-
-                durations.append(dt)
-                progressed = True
-                print(f"    ✓ {base}（{len(key2rel)} 资源，用时 {dt:.1f}s）")
+                # 内层：限流就原地长冷却后重试同一会话，直到成功或遇到非限流错误
+                while True:
+                    t0 = time.time()   # 每次尝试重新计时，CSV 耗时不含冷却等待
+                    try:
+                        conv = adapter.fetch_conversation(cid)
+                        base = f"{str(idx).zfill(3)}_{util.safe_name(title, cid)}"
+                        with open(os.path.join(p["json"], base + ".json"), "w", encoding="utf-8") as f:
+                            json.dump(conv, f, ensure_ascii=False, indent=2)
+                        key2rel = _process_assets(adapter, conv, p, base)
+                        with open(os.path.join(p["md"], base + ".md"), "w", encoding="utf-8") as f:
+                            f.write(adapter.render_markdown(conv, title, key2rel))
+                    except browser.RateLimited:
+                        # 一碰到限流，立即按 2→5→10 分钟冷却，冷却后重试本会话
+                        _do_cooldown("遇到限流")
+                        continue
+                    except Exception as e:
+                        dt = time.time() - t0
+                        print(f"    ⚠ 失败（用时 {dt:.1f}s）: {e}")
+                        row[storage.STATUS_COL] = "失败"
+                        storage.save_rows(p["csv"], fields, rows)
+                        consec_fail += 1
+                        if consec_fail >= CONSEC_FAIL_LIMIT:
+                            _do_cooldown(f"连续失败 {CONSEC_FAIL_LIMIT} 次（掉登录/断网等）")
+                            cooled = True
+                        break   # 非限流错误：结束本会话
+                    else:
+                        dt = time.time() - t0
+                        consec_fail = 0
+                        cooldown_level = 0   # 成功则重置冷却升级，下次限流仍从 2 分钟起
+                        row[storage.STATUS_COL] = "完成"
+                        row[storage.FILE_COL] = base
+                        row[storage.DURATION_COL] = f"{dt:.1f}"   # 该会话导出耗时记入 CSV
+                        storage.save_rows(p["csv"], fields, rows)
+                        durations.append(dt)
+                        progressed = True
+                        print(f"    ✓ {base}（{len(key2rel)} 资源，用时 {dt:.1f}s）")
+                        break   # 成功：结束本会话
+                if cooled:
+                    break          # 非限流连续失败已冷却，跳出本轮，外层重扫
                 time.sleep(adapter.gap)
 
             if cooled:
