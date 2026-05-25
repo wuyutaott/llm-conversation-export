@@ -7,7 +7,9 @@ OUT_ROOT = os.path.join(ROOT, "out")
 
 STATUS_COL = "状态"
 FILE_COL = "文件"
+DURATION_COL = "耗时(秒)"
 CSV_HEADER = ["序号", "标题", "会话ID", "创建时间", "更新时间"]
+EXTRA_COLS = [STATUS_COL, FILE_COL, DURATION_COL]
 
 
 def paths(platform, account):
@@ -34,15 +36,15 @@ def write_titles(csv_path, items):
     if os.path.exists(csv_path):
         with open(csv_path, encoding="utf-8-sig", newline="") as f:
             for r in csv.DictReader(f):
-                prev[r.get("会话ID")] = (r.get(STATUS_COL, ""), r.get(FILE_COL, ""))
-    fields = CSV_HEADER + [STATUS_COL, FILE_COL]
+                prev[r.get("会话ID")] = (r.get(STATUS_COL, ""), r.get(FILE_COL, ""), r.get(DURATION_COL, ""))
+    fields = CSV_HEADER + EXTRA_COLS
     with open(csv_path, "w", encoding="utf-8-sig", newline="") as f:
         w = csv.writer(f)
         w.writerow(fields)
         for i, c in enumerate(items, 1):
-            status, fname = prev.get(c.get("id"), ("", ""))
+            status, fname, dur = prev.get(c.get("id"), ("", "", ""))
             w.writerow([i, c.get("title") or "(无标题)", c.get("id"),
-                        c.get("create_time", ""), c.get("update_time", ""), status, fname])
+                        c.get("create_time", ""), c.get("update_time", ""), status, fname, dur])
 
 
 def load_rows(csv_path):
@@ -51,7 +53,7 @@ def load_rows(csv_path):
         reader = csv.DictReader(f)
         fields = list(reader.fieldnames)
         rows = list(reader)
-    for col in (STATUS_COL, FILE_COL):
+    for col in EXTRA_COLS:
         if col not in fields:
             fields.append(col)
             for r in rows:

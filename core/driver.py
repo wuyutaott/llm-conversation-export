@@ -19,6 +19,16 @@ from core import browser, storage, util
 CONSEC_FAIL_LIMIT = 3   # 连续失败达此数就熔断（多半掉登录/被限流/断网）
 
 
+def _fmt(sec):
+    """秒 → 可读时长。"""
+    sec = int(round(sec))
+    if sec >= 3600:
+        return f"{sec // 3600}时{sec % 3600 // 60}分{sec % 60}秒"
+    if sec >= 60:
+        return f"{sec // 60}分{sec % 60}秒"
+    return f"{sec}秒"
+
+
 def _build_titles(adapter, p):
     print("→ 未发现 titles.csv，先拉取会话列表 ...")
     items = adapter.list_conversations()
@@ -116,25 +126,36 @@ def run(adapter, account_override=None, mode="fetch"):
             time.sleep(adapter.gap)
             continue
 
+        dt = time.time() - t0
         consec_fail = 0
         row[storage.STATUS_COL] = "完成"
         row[storage.FILE_COL] = base
+        row[storage.DURATION_COL] = f"{dt:.1f}"   # 该会话导出耗时记入 CSV
         storage.save_rows(p["csv"], fields, rows)
 
-        dt = time.time() - t0
         durations.append(dt)
         done += 1
         pct = done / total * 100
         filled = int(24 * done / total)
         bar = "█" * filled + "░" * (24 - filled)
-        spent = time.time() - session_start
-        spent_str = f"{int(spent // 60)}分{int(spent % 60)}秒" if spent >= 60 else f"{spent:.0f}秒"
         print(f"    ✓ {base}（{len(key2rel)} 资源，用时 {dt:.1f}s）")
-        print(f"    进度 [{bar}] {done}/{total} {pct:.1f}%  本次已耗时 {spent_str}")
+        print(f"    进度 [{bar}] {done}/{total} {pct:.1f}%")
         time.sleep(adapter.gap)
 
     done = sum(1 for r in rows if r.get(storage.STATUS_COL) == "完成")
     failed = sum(1 for r in rows if r.get(storage.STATUS_COL) == "失败")
     elapsed = time.time() - session_start
-    print(f"\n✓ 本次结束。累计完成 {done}/{total}，失败 {failed}，"
-          f"本次处理 {len(durations)} 个，用时 {elapsed/60:.1f} 分")
+    net = sum(durations)
+    total_recorded = 0.0
+    for r in rows:
+        try:
+            total_recorded += float(r.get(storage.DURATION_COL) or 0)
+        except ValueError:
+            pass
+    print("\n==== 本次结束 ====")
+    print(f"  完成 {done}/{total}，失败 {failed}")
+    print(f"  本次处理 {len(durations)} 个会话")
+    print(f"  本次净抓取耗时 {_fmt(net)}（各会话用时之和），墙钟 {_fmt(elapsed)}（含等待退避）")
+    if len(durations):
+        print(f"  本次平均每会话 {net/len(durations):.1f}s")
+    print(f"  全部已完成会话累计抓取耗时 {_fmt(total_recorded)}（来自 CSV 耗时列）")
