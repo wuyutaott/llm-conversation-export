@@ -9,7 +9,11 @@ import importlib
 import os
 import sys
 
-ROOT = "/Users/stone/Documents/wuyutaott.com/memory-exportor"
+# 本脚本由 browser-harness 以 exec 方式运行，exec 环境拿不到可靠的 __file__，
+# 故仓库根由入口（run.py / run.sh）通过 EXPORT_ROOT 环境变量注入。
+ROOT = os.environ.get("EXPORT_ROOT")
+if not ROOT:
+    raise SystemExit("缺少 EXPORT_ROOT 环境变量（请用 python run.py 或 ./run.sh 启动，勿直接运行 export.py）")
 sys.path.insert(0, ROOT)
 
 from core import browser, driver  # noqa: E402

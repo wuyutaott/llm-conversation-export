@@ -3,7 +3,9 @@ import csv
 import os
 from datetime import datetime
 
-ROOT = "/Users/stone/Documents/wuyutaott.com/memory-exportor"
+# ROOT 优先取入口（run.py / run.sh）注入的 EXPORT_ROOT；直接 import 时回退到本文件所在仓库根。
+# 不再硬编码绝对路径，换机器 / 换平台（含 Windows）都能正确定位 out/ 目录。
+ROOT = os.environ.get("EXPORT_ROOT") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_ROOT = os.path.join(ROOT, "out")
 
 STATUS_COL = "状态"

@@ -5,7 +5,8 @@
 ## 快速开始
 
 ```bash
-./run.sh        # 选平台 → 选账号 → 选动作，开始导出
+./run.sh        # macOS / Linux：选平台 → 选账号，开始导出
+run.cmd         # Windows（或任意平台 python run.py）
 ```
 
 前提：Chrome 已登录目标平台，且本机有 `browser-harness`。详见 [docs/usage.md](docs/usage.md)。

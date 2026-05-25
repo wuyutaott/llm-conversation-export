@@ -27,5 +27,12 @@ browser-harness -c 'print(page_info())'
 
 1. Chrome 已登录目标平台（chatgpt.com / grok.com）。
 2. `browser-harness` 可用（在 `$PATH` 里）。
+3. Python 3.9+ 可用（命令名 macOS/Linux 通常是 `python3`，Windows 通常是 `python`）。
 
-满足后直接 `./run.sh`。
+满足后：macOS/Linux 跑 `./run.sh`，Windows 跑 `run.cmd`（或任意平台 `python run.py`）。
+
+## 平台支持
+
+编排与导出逻辑（`run.py` / `core/` / `adapters/`）只用 Python 标准库，已做到 Windows / macOS / Linux 通用，无任何 POSIX 专属调用。
+
+唯一的平台前提是 **`browser-harness` 本身要能在该系统上运行并连上本机 Chrome**——它是独立 CLI，需各自在对应系统上安装确认。`run.py` 启动时会用 `shutil.which` 检测，找不到会给出明确提示而非崩溃。

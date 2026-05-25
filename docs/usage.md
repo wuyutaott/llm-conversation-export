@@ -9,10 +9,20 @@
 
 ## 一条命令搞定
 
+macOS / Linux：
+
 ```bash
-cd /Users/stone/Documents/wuyutaott.com/memory-exportor
-./run.sh
+./run.sh          # 等价于 python3 run.py
 ```
+
+Windows（CMD / PowerShell）：
+
+```bat
+run.cmd
+:: 或直接 python run.py
+```
+
+> 三个入口都转交给跨平台的 `run.py`，菜单与流程完全一致；方向键（↑↓）或 `j`/`k` 移动，回车确认。
 
 然后按提示选择：
 
@@ -45,14 +55,18 @@ out/{平台}/{账号}/
 
 ## 停止正在跑的导出
 
-```bash
-pkill -f export.py
-```
+在运行导出的终端里按 **Ctrl-C** 即可：进度已实时写回 `titles.csv`，重跑会从断点继续。（macOS/Linux 也可在另一个终端 `pkill -f export.py`。）
 
 ## 查看进度
 
-直接打开 `out/{平台}/{账号}/titles.csv` 看「状态」列，或：
+直接打开 `out/{平台}/{账号}/titles.csv` 看「状态」列，或统计已完成数：
 
 ```bash
+# macOS / Linux
 grep -c ',完成,' out/chatgpt/你的邮箱/titles.csv
+```
+
+```powershell
+# Windows PowerShell
+(Select-String -Path out\chatgpt\你的邮箱\titles.csv -Pattern ',完成,').Count
 ```
