@@ -202,7 +202,9 @@ class GeminiAdapter:
         return out
 
     def download_asset(self, desc):
-        data = browser.download_cdp(desc["url"])
+        # 页面 img 的 src 是缩略图（且原 src 可能 403）；去掉尺寸参数加 =s0 取原图
+        url = desc["url"].split("=")[0] + "=s0"
+        data = browser.download_cdp(url)
         return data, desc.get("name") or desc["key"], _sniff_mime(data)
 
     # ---- 渲染 ----
