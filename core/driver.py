@@ -16,7 +16,18 @@ import time
 
 from core import browser, storage, util
 
-CONSEC_FAIL_LIMIT = 3   # 连续失败达此数就熔断（多半掉登录/被限流/断网）
+CONSEC_FAIL_LIMIT = 3            # 连续失败达此数就进入冷却重试
+COOLDOWN_SCHEDULE = [120, 300, 600]   # 升级式冷却：2分 → 5分 → 10分（封顶 10 分）
+
+
+def _cooldown(seconds, reason="连续失败"):
+    """单行倒计时等待。Ctrl-C 可中止整个导出。"""
+    print(f"\n⏳ {reason}，冷却 {seconds // 60} 分钟后重试（Ctrl-C 可手动结束）")
+    for rem in range(seconds, 0, -1):
+        m, s = divmod(rem, 60)
+        print(f"\r   重试CD: {m}:{s:02d}    ", end="", flush=True)
+        time.sleep(1)
+    print("\r   重试CD: 0:00 —— 重新尝试            ")
 
 
 def _fmt(sec):
@@ -90,57 +101,84 @@ def run(adapter, account_override=None, mode="fetch"):
 
     fields, rows = storage.load_rows(p["csv"])
     total = len(rows)
-    todo = [r for r in rows if r.get(storage.STATUS_COL) != "完成"]
-    start_done = total - len(todo)
-    done = start_done
-    print(f"→ 共 {total} 个会话，已完成 {done}，本次待抓 {len(todo)}")
+    done0 = sum(1 for r in rows if r.get(storage.STATUS_COL) == "完成")
+    print(f"→ 共 {total} 个会话，已完成 {done0}，待抓 {total - done0}")
 
     session_start = time.time()
     durations = []
-    consec_fail = 0
+    consec_fail = 0       # 连续失败计数（成功或冷却后重置）
+    cooldown_level = 0    # 冷却升级级别（成功则归零）
+    interrupted = False
 
-    for i, row in enumerate(todo, 1):
-        idx = row.get("序号", "")
-        cid = row.get("会话ID", "")
-        title = row.get("标题", "") or "(无标题)"
-        t0 = time.time()
-        print(f"[{start_done + i}/{total}] #{idx} {title}")
-        try:
-            conv = adapter.fetch_conversation(cid)
-            base = f"{str(idx).zfill(3)}_{util.safe_name(title, cid)}"
-            with open(os.path.join(p["json"], base + ".json"), "w", encoding="utf-8") as f:
-                json.dump(conv, f, ensure_ascii=False, indent=2)
-            key2rel = _process_assets(adapter, conv, p, base)
-            with open(os.path.join(p["md"], base + ".md"), "w", encoding="utf-8") as f:
-                f.write(adapter.render_markdown(conv, title, key2rel))
-        except Exception as e:
-            dt = time.time() - t0
-            print(f"    ⚠ 失败（用时 {dt:.1f}s）: {e}")
-            row[storage.STATUS_COL] = "失败"
-            storage.save_rows(p["csv"], fields, rows)
-            consec_fail += 1
-            if consec_fail >= CONSEC_FAIL_LIMIT:
-                print(f"\n⛔ 连续失败 {consec_fail} 次，已熔断停止——多半是掉登录/被限流/断网。")
-                print("   请检查登录状态，稍后重跑会从断点继续（失败的会重试）。")
-                break
-            time.sleep(adapter.gap)
-            continue
-
-        dt = time.time() - t0
+    def _do_cooldown(reason):
+        nonlocal cooldown_level, consec_fail
+        wait = COOLDOWN_SCHEDULE[min(cooldown_level, len(COOLDOWN_SCHEDULE) - 1)]
+        cooldown_level += 1
         consec_fail = 0
-        row[storage.STATUS_COL] = "完成"
-        row[storage.FILE_COL] = base
-        row[storage.DURATION_COL] = f"{dt:.1f}"   # 该会话导出耗时记入 CSV
-        storage.save_rows(p["csv"], fields, rows)
+        _cooldown(wait, reason)
 
-        durations.append(dt)
-        done += 1
-        pct = done / total * 100
-        filled = int(24 * done / total)
-        bar = "█" * filled + "░" * (24 - filled)
-        print(f"    ✓ {base}（{len(key2rel)} 资源，用时 {dt:.1f}s）")
-        print(f"    进度 [{bar}] {done}/{total} {pct:.1f}%")
-        time.sleep(adapter.gap)
+    try:
+        # 外层：反复扫未完成的会话，直到全部完成（失败的会被下一轮重试）
+        while True:
+            todo = [r for r in rows if r.get(storage.STATUS_COL) != "完成"]
+            if not todo:
+                break
+            progressed = False   # 本轮是否有成功
+            cooled = False        # 本轮是否已触发冷却
+            for row in todo:
+                idx = row.get("序号", "")
+                cid = row.get("会话ID", "")
+                title = row.get("标题", "") or "(无标题)"
+                done = sum(1 for r in rows if r.get(storage.STATUS_COL) == "完成")
+                t0 = time.time()
+                print(f"[{done + 1}/{total}] #{idx} {title}")
+                try:
+                    conv = adapter.fetch_conversation(cid)
+                    base = f"{str(idx).zfill(3)}_{util.safe_name(title, cid)}"
+                    with open(os.path.join(p["json"], base + ".json"), "w", encoding="utf-8") as f:
+                        json.dump(conv, f, ensure_ascii=False, indent=2)
+                    key2rel = _process_assets(adapter, conv, p, base)
+                    with open(os.path.join(p["md"], base + ".md"), "w", encoding="utf-8") as f:
+                        f.write(adapter.render_markdown(conv, title, key2rel))
+                except Exception as e:
+                    dt = time.time() - t0
+                    print(f"    ⚠ 失败（用时 {dt:.1f}s）: {e}")
+                    row[storage.STATUS_COL] = "失败"
+                    storage.save_rows(p["csv"], fields, rows)
+                    consec_fail += 1
+                    if consec_fail >= CONSEC_FAIL_LIMIT:
+                        _do_cooldown(f"连续失败 {CONSEC_FAIL_LIMIT} 次（多半被限流/掉登录/断网）")
+                        cooled = True
+                        break   # 跳出本轮，外层重新扫 todo 重试失败的
+                    time.sleep(adapter.gap)
+                    continue
+
+                dt = time.time() - t0
+                consec_fail = 0
+                cooldown_level = 0   # 成功则重置冷却升级，下次限流仍从 2 分钟起
+                row[storage.STATUS_COL] = "完成"
+                row[storage.FILE_COL] = base
+                row[storage.DURATION_COL] = f"{dt:.1f}"   # 该会话导出耗时记入 CSV
+                storage.save_rows(p["csv"], fields, rows)
+
+                durations.append(dt)
+                progressed = True
+                done = sum(1 for r in rows if r.get(storage.STATUS_COL) == "完成")
+                pct = done / total * 100
+                filled = int(24 * done / total)
+                bar = "█" * filled + "░" * (24 - filled)
+                print(f"    ✓ {base}（{len(key2rel)} 资源，用时 {dt:.1f}s）")
+                print(f"    进度 [{bar}] {done}/{total} {pct:.1f}%")
+                time.sleep(adapter.gap)
+
+            if cooled:
+                continue                      # 已冷却，外层重扫重试
+            if not progressed:
+                _do_cooldown("本轮无任何成功")  # 剩余都失败但没触发连续阈值，也冷却避免空转
+            # 有成功但仍有失败项：外层 while 再过一轮重试它们
+    except KeyboardInterrupt:
+        interrupted = True
+        print("\n⏹ 已手动停止（Ctrl-C）。进度已保存，重跑会从断点继续。")
 
     done = sum(1 for r in rows if r.get(storage.STATUS_COL) == "完成")
     failed = sum(1 for r in rows if r.get(storage.STATUS_COL) == "失败")
@@ -152,7 +190,8 @@ def run(adapter, account_override=None, mode="fetch"):
             total_recorded += float(r.get(storage.DURATION_COL) or 0)
         except ValueError:
             pass
-    print("\n==== 本次结束 ====")
+    head = "已手动停止" if interrupted else ("全部完成 🎉" if done == total else "本次结束")
+    print(f"\n==== {head} ====")
     print(f"  完成 {done}/{total}，失败 {failed}")
     print(f"  本次处理 {len(durations)} 个会话")
     print(f"  本次净抓取耗时 {_fmt(net)}（各会话用时之和），墙钟 {_fmt(elapsed)}（含等待退避）")
