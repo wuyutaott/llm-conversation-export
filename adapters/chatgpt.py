@@ -12,7 +12,8 @@ class ChatGPTAdapter:
     name = "chatgpt"
     domain = "chatgpt.com"
     home_url = "https://chatgpt.com/"
-    gap = 5.0
+    gap_min = 1.0     # 会话之间随机停顿区间（秒），模拟真人节奏
+    gap_max = 10.0
     img_gap = 1.0
 
     def __init__(self):

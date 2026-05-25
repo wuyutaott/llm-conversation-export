@@ -12,6 +12,7 @@ Adapter 约定：
 """
 import json
 import os
+import random
 import time
 
 from core import browser, storage, util
@@ -205,7 +206,10 @@ def run(adapter, account_override=None, mode="fetch"):
                         break   # 成功：结束本会话
                 if cooled:
                     break          # 非限流连续失败已冷却，跳出本轮，外层重扫
-                time.sleep(adapter.gap)
+                # 会话之间随机停顿，模拟真人节奏、降低触发突发检测的概率
+                delay = random.uniform(adapter.gap_min, adapter.gap_max)
+                print(f"    休息 {delay:.1f}s")
+                time.sleep(delay)
 
             if cooled:
                 continue                      # 已冷却，外层重扫重试

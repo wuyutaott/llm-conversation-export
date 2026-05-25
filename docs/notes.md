@@ -41,6 +41,26 @@
 - 图片/文件：`fileAttachmentsMetadata`（含 `fileUri`、`fileMimeType`、`fileName`）+ `generatedImageUrls`。
   下载直链：`https://assets.grok.com/{fileUri}`，需 `credentials:"include"`。非图片附件存为对应扩展名（识别不出用 `.bin`）。
 
+## Gemini（gemini.google.com）
+
+最难的一个：没有干净 REST，用 Google 的 `batchexecute` RPC + SPA DOM 抓取。
+
+- 认证：Google cookie + 页面 `window.WIZ_global_data` 里的 `SNlM0e`(at) / `FdrFJe`(f.sid) / `cfb2h`(bl)。
+- 账号：无邮箱接口，从页面 DOM 正则提取登录邮箱（同 Grok 思路）。
+- 会话列表：RPC `MaZiqc`。**首页 payload 是 `[60]`（单元素数组）**，返回 `[null, cursor, [[id,title,...,[ts,ns],...],...]]`；
+  下一页 `[60, cursor]`，直到无 cursor。注意 `[60,null]`（显式 null）会返回空——必须用单元素。
+- 会话正文：正文 RPC（hNvQHb）脱离 SPA 复现返回空、直链 `/app/{id}` 会被重定向回 `/app`。
+  最终改为 **SPA 内 DOM 抓取**：
+  1. `browser.navigate` 整页重载回 `/app`（**关键**：同路由换参数 `pushState` 不会触发 Angular 重渲染，
+     会抓到上一个会话的残留 DOM；必须整页重载回 /app 再进目标会话）。
+  2. `history.pushState(null,'','/app/{id}')` + `dispatchEvent(PopStateEvent('popstate'))` 打开会话。
+  3. 轮询 `user-query`/`model-response` 数量稳定后，抓 `.query-text` 与 `.markdown` 的 innerText。
+  4. 用户消息开头的 "你说"/"You said" 是 UI 标签，需正则去掉。
+- 代价：每个会话要整页重载（~7.5s/个），比 ChatGPT/Grok 慢；且依赖 Gemini 前端 DOM 结构，前端改版会失效。
+- 暂未导出会话中的图片（Gemini 图片在 DOM 里是 blob，后续可加）。
+- batchexecute 响应格式：`)]}'` 前缀 + 多段「长度行 + JSON 数组行」，目标数据在 `["wrb.fr", rpcid, "<内层JSON字符串>", ...]` 的第 3 项（需二次 json 解析）。
+- `core.browser.fetch` 的 body：dict/list 会 `JSON.stringify`，**字符串体原样发送**（Gemini 的 `f.req=...` 表单体靠这个）。
+
 ## 文件命名
 
 - 会话文件名：`{三位序号}_{净化标题}`，图片在 `images/{该文件名}/` 子目录。

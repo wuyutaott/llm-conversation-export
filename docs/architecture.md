@@ -14,8 +14,9 @@ memory-exportor/
 │   ├── util.py      # 时间格式化 / 文件名净化 / 扩展名推断
 │   └── driver.py    # 主循环：账号校验、清单生成、断点续传、下载、渲染、进度、熔断
 ├── adapters/
-│   ├── chatgpt.py   # ChatGPTAdapter
-│   └── grok.py      # GrokAdapter
+│   ├── chatgpt.py   # ChatGPTAdapter（token + REST）
+│   ├── grok.py      # GrokAdapter（cookie + REST）
+│   └── gemini.py    # GeminiAdapter（batchexecute 列表 + SPA DOM 抓正文）
 └── out/{平台}/{账号}/{json,markdown,images,titles.csv}
 ```
 
@@ -50,4 +51,6 @@ driver 负责：站点切换、账号校验（指定账号 vs 当前登录）、
 3. 资源下载：单步直链用 `browser.download(url, credentials=...)`；需先换签名 URL 的（如 chatgpt）在 `download_asset` 里先调接口再下。
 4. 跑 `./run.sh`，新平台会自动出现在菜单里。
 
-参考现有两个 adapter：`chatgpt.py`（token + mapping 树 + 两步下载）、`grok.py`（cookie + response 列表 + 直链下载 + DOM 抓邮箱）。
+参考现有 adapter：`chatgpt.py`（token + mapping 树 + 两步下载）、`grok.py`（cookie + response 列表 + 直链下载 + DOM 抓邮箱）、`gemini.py`（batchexecute RPC 拉列表 + SPA 内整页重载+pushState 打开会话 + DOM 抓正文，最复杂的范例）。
+
+注：gemini adapter 用到 `browser.navigate`（整页重载，需 `cdp` helper，已在 export.py 绑定）和 `browser.run_js`（DOM 抓取）。新平台若用 REST 则无需这些。

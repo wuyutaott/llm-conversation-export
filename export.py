@@ -15,7 +15,7 @@ sys.path.insert(0, ROOT)
 from core import browser, driver  # noqa: E402
 
 # 绑定 browser-harness 注入到 exec 全局的 helper（python 直跑会 NameError，必须经 browser-harness）
-browser.bind(js=js, page_info=page_info, new_tab=new_tab, wait_for_load=wait_for_load)  # noqa: F821
+browser.bind(js=js, page_info=page_info, new_tab=new_tab, wait_for_load=wait_for_load, cdp=cdp)  # noqa: F821
 
 _platform = os.environ.get("EXPORT_PLATFORM")
 _account = os.environ.get("EXPORT_ACCOUNT") or None

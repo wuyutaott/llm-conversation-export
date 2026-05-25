@@ -47,7 +47,8 @@ for csv in "$ROOT"/out/*/*/titles.csv; do
     acct="$(basename "$(dirname "$csv")")"
     plat="$(basename "$(dirname "$(dirname "$csv")")")"
     total=$(($(wc -l < "$csv") - 1))
-    fin=$(grep -c ',完成,' "$csv" 2>/dev/null || echo 0)
+    fin=$(grep -c ',完成,' "$csv" 2>/dev/null || true)   # grep -c 无匹配时打印0但退出1，用||true而非||echo0(否则得"0\n0")
+    [ -z "$fin" ] && fin=0
     if [ "$fin" -lt "$total" ]; then
         labels+=("继续 $(platform_label "$plat"): $acct ($fin/$total)")
         kinds+=("resume"); plats+=("$plat"); accts+=("$acct")

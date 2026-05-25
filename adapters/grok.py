@@ -18,7 +18,8 @@ class GrokAdapter:
     name = "grok"
     domain = "grok.com"
     home_url = "https://grok.com/"
-    gap = 2.0
+    gap_min = 1.0     # 会话之间随机停顿区间（秒）
+    gap_max = 5.0
     img_gap = 0.5
 
     def __init__(self):

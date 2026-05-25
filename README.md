@@ -14,7 +14,7 @@
 
 - `run.sh` / `export.py` — 入口
 - `core/` — 通用编排（浏览器交互、存储、主循环）
-- `adapters/` — 各平台适配器（`chatgpt.py`、`grok.py`…，一个平台一个文件）
+- `adapters/` — 各平台适配器（`chatgpt.py`、`grok.py`、`gemini.py`…，一个平台一个文件）
 - `out/{平台}/{账号}/` — 导出结果（已被 .gitignore）
 
 ## 文档
