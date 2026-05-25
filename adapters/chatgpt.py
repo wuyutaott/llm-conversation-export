@@ -128,6 +128,12 @@ class ChatGPTAdapter:
                 elif isinstance(p, dict) and p.get("content_type") == "image_asset_pointer":
                     info = key2rel.get(self._fid(p.get("asset_pointer")))
                     out.append(f"![image]({info['rel']})" if info else "[图片(未下载)]")
+                elif isinstance(p, dict) and p.get("text"):
+                    out.append(p["text"])  # 语音转录（audio_transcription）等带文字的 part
+                elif isinstance(p, dict) and p.get("content_type") in (
+                        "audio_transcription", "audio_asset_pointer",
+                        "real_time_user_audio_video_asset_pointer"):
+                    pass  # 语音相关 part：有文字的已在上一分支取出；空转录(沉默/噪音)与纯资源指针不输出占位
                 elif isinstance(p, dict):
                     out.append(f"[{p.get('content_type', 'asset')}]")
         elif ctype == "code":
