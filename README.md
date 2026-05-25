@@ -13,9 +13,20 @@ run.cmd         # Windows（或任意平台 python run.py）
 
 Windows 首次安装依赖可一键完成：`powershell -ExecutionPolicy Bypass -File .\install-windows.ps1`（详见 [docs/dependencies.md](docs/dependencies.md)）。
 
+## 重新渲染（不重爬）
+
+改了某个 adapter 的渲染逻辑后，用本地已下载的 JSON 重新生成 Markdown，不联网、不重爬，已下载的图片就地复用（链接不退化）：
+
+```bash
+python3 rerender.py              # 重渲染 out/ 下所有平台、所有账号
+python3 rerender.py chatgpt      # 只重渲染指定平台
+python3 rerender.py chatgpt 你的邮箱   # 只重渲染指定平台 + 账号目录
+```
+
 ## 结构
 
 - `run.sh` / `export.py` — 入口
+- `rerender.py` — 用本地 JSON 重新生成 Markdown（不重爬）
 - `core/` — 通用编排（浏览器交互、存储、主循环）
 - `adapters/` — 各平台适配器（`chatgpt.py`、`grok.py`、`gemini.py`…，一个平台一个文件）
 - `out/{平台}/{账号}/` — 导出结果（已被 .gitignore）
