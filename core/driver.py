@@ -47,22 +47,26 @@ def _fmt(sec):
 
 def _build_titles(adapter, p):
     existed = os.path.exists(p["csv"])
+    known = set()
     old_n = 0
     if existed:
         try:
             _, old_rows = storage.load_rows(p["csv"])
             old_n = len(old_rows)
+            known = {r.get("会话ID") for r in old_rows if r.get("会话ID")}
         except Exception:
             pass
-        print("→ 同步会话清单（拉取最新列表，增量合并新会话）...")
+        print("→ 同步会话清单（从最新拉取，扫到整页都已在清单就停，增量合并新会话）...")
     else:
         print("→ 未发现 titles.csv，先拉取会话列表 ...")
-    items = adapter.list_conversations()
+    # 已有清单时把已知 ID 传给 adapter，使其拉到「整页都已知」即可提前停止，不必每次拉全量
+    items = adapter.list_conversations(known_ids=known or None)
     storage.write_titles(p["csv"], items)
+    _, rows = storage.load_rows(p["csv"])
     if existed:
-        print(f"✓ 清单已同步: 共 {len(items)} 个（新增 {max(0, len(items) - old_n)} 个）\n")
+        print(f"✓ 清单已同步: 共 {len(rows)} 个（新增 {max(0, len(rows) - old_n)} 个）\n")
     else:
-        print(f"✓ 标题清单已生成: {len(items)} 个\n")
+        print(f"✓ 标题清单已生成: {len(rows)} 个\n")
 
 
 def _process_assets(adapter, conv, p, base):

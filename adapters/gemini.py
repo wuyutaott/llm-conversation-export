@@ -125,7 +125,7 @@ class GeminiAdapter:
         return self._email or "gemini-account"
 
     # ---- 列表 ----
-    def list_conversations(self):
+    def list_conversations(self, known_ids=None):
         items, seen, cursor = [], set(), None
         while True:
             inner = [PAGE] if cursor is None else [PAGE, cursor]
@@ -148,6 +148,10 @@ class GeminiAdapter:
                 new += 1
             print(f"  已取 {len(items)}")
             if not convs or not new or not cursor:
+                break
+            # 增量提前停止：整页都在已有清单里 → 后面都是更早的会话，无新增
+            if known_ids and all((c[0] if c else None) in known_ids for c in convs):
+                print("  本页均已在清单中，提前停止")
                 break
         return items
 

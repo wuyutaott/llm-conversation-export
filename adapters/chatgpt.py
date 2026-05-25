@@ -47,7 +47,7 @@ class ChatGPTAdapter:
         raise RuntimeError("鉴权失败")
 
     # ---- 列表 ----
-    def list_conversations(self):
+    def list_conversations(self, known_ids=None):
         items, seen, offset = [], set(), 0
         while True:
             d = self._api(f"/backend-api/conversations?offset={offset}&limit=28&order=updated")
@@ -58,6 +58,10 @@ class ChatGPTAdapter:
             items.extend(new)
             print(f"  已取 {len(items)}")
             if not batch or not new:
+                break
+            # 增量提前停止：整页都在已有清单里 → 后面都是更早的会话，无新增（列表按 updated 降序）
+            if known_ids and all(c.get("id") in known_ids for c in batch):
+                print("  本页均已在清单中，提前停止")
                 break
             offset += len(batch)
         return [{"id": c.get("id"), "title": c.get("title"),

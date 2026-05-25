@@ -45,7 +45,7 @@ class GrokAdapter:
         return self._email or self._userid
 
     # ---- 列表 ----
-    def list_conversations(self):
+    def list_conversations(self, known_ids=None):
         items, seen, token = [], set(), None
         while True:
             path = "/rest/app-chat/conversations" + (f"?pageToken={token}" if token else "")
@@ -58,6 +58,10 @@ class GrokAdapter:
             print(f"  已取 {len(items)}")
             token = d.get("nextPageToken")
             if not batch or not new or not token:
+                break
+            # 增量提前停止：整页都在已有清单里 → 后面都是更早的会话，无新增
+            if known_ids and all(c.get("conversationId") in known_ids for c in batch):
+                print("  本页均已在清单中，提前停止")
                 break
         return [{"id": c.get("conversationId"), "title": c.get("title"),
                  "create_time": util.ts(c.get("createTime")),

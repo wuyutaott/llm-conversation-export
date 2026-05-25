@@ -40,51 +40,55 @@ def ensure_dirs(p):
 
 
 def write_titles(csv_path, items):
-    """items: [{'id','title','create_time','update_time'}]，写成 titles.csv。
+    """把会话列表 items 增量合并进 titles.csv（不整表重写）。
 
-    序号规则：越新（创建越晚）的会话序号越大，便于增量导出——新会话只在末尾追加
-    更大的序号，已有会话的序号永久固定不变（即使被重新激活、update_time 变化也不动）。
+    items: [{'id','title','create_time','update_time'}]。
 
-    若已存在 titles.csv：按「会话ID」保留原有「序号/状态/文件」（刷新清单不丢进度、不重排）；
-    新出现的会话按「创建时间」升序接在当前最大序号之后。"""
+    合并规则：
+    - 已存在的会话：原样保留该行（序号/状态/文件/耗时都不动，刷新清单不丢进度、不重排）。
+    - 新会话（csv 里没有的）：按「创建时间」升序追加，分配「当前最大序号+1」起的更大序号。
+    - csv 里有、但本次 items 未包含的会话：原样保留——这样允许「增量刷新只拉最新几页」
+      （adapter.list_conversations 提前停止）而不会丢掉没拉到的历史行。
+
+    序号规则：越新（创建越晚）序号越大、最旧=001；已分配的序号永久固定（即使会话被重新
+    激活、update_time 变化也不动）。"""
     os.makedirs(os.path.dirname(csv_path), exist_ok=True)
-    prev = {}          # 会话ID -> (序号, 状态, 文件, 耗时)
+    fields = CSV_HEADER + EXTRA_COLS
+    existing = {}      # 会话ID -> 原行 dict（保留全部字段）
     max_seq = 0
     if os.path.exists(csv_path):
         with open(csv_path, encoding="utf-8-sig", newline="") as f:
             for r in csv.DictReader(f):
+                existing[r.get("会话ID")] = r
                 seq = r.get("序号", "")
-                prev[r.get("会话ID")] = (seq, r.get(STATUS_COL, ""), r.get(FILE_COL, ""), r.get(DURATION_COL, ""))
                 if str(seq).isdigit():
                     max_seq = max(max_seq, int(seq))
 
-    seq_of = {}
-    for c in items:
-        cid = c.get("id")
-        old = prev.get(cid)
-        if old and str(old[0]).isdigit():
-            seq_of[cid] = int(old[0])
-    # 新会话：按创建时间升序（越新排越后），依次分配 max_seq+1, +2, ...
-    new = [c for c in items if c.get("id") not in seq_of]
+    rows = list(existing.values())                       # 全部已有行原样保留
+    new = [c for c in items if c.get("id") not in existing]
     new.sort(key=lambda c: (c.get("create_time") or "", c.get("id") or ""))
-    for c in new:
+    for c in new:                                        # 新会话按创建时间升序追加更大序号
         max_seq += 1
-        seq_of[c.get("id")] = max_seq
+        rows.append({
+            "序号": max_seq, "标题": c.get("title") or "(无标题)", "会话ID": c.get("id"),
+            "创建时间": c.get("create_time", ""), "更新时间": c.get("update_time", ""),
+            STATUS_COL: "", FILE_COL: "", DURATION_COL: "",
+        })
 
-    rows = []
-    for c in items:
-        cid = c.get("id")
-        _, status, fname, dur = prev.get(cid, ("", "", "", ""))
-        rows.append((seq_of[cid], c, status, fname, dur))
-    rows.sort(key=lambda x: x[0])   # 按序号升序输出
+    def _seq(r):
+        s = r.get("序号", "")
+        return int(s) if str(s).isdigit() else 10 ** 9
+    rows.sort(key=_seq)                                  # 按序号升序输出
 
-    fields = CSV_HEADER + EXTRA_COLS
-    with open(csv_path, "w", encoding="utf-8-sig", newline="") as f:
-        w = csv.writer(f)
-        w.writerow(fields)
-        for seq, c, status, fname, dur in rows:
-            w.writerow([seq, c.get("title") or "(无标题)", c.get("id"),
-                        c.get("create_time", ""), c.get("update_time", ""), status, fname, dur])
+    tmp = csv_path + ".tmp"                               # 原子写，写一半断电不损坏原文件
+    with open(tmp, "w", encoding="utf-8-sig", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
+        w.writeheader()
+        for r in rows:
+            for k in fields:
+                r.setdefault(k, "")
+            w.writerow(r)
+    os.replace(tmp, csv_path)
 
 
 def load_rows(csv_path):
