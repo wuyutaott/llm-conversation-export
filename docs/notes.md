@@ -41,6 +41,30 @@
 - 图片/文件：`fileAttachmentsMetadata`（含 `fileUri`、`fileMimeType`、`fileName`）+ `generatedImageUrls`。
   下载直链：`https://assets.grok.com/{fileUri}`，需 `credentials:"include"`。非图片附件存为对应扩展名（识别不出用 `.bin`）。
 
+## Claude（claude.ai）
+
+- 认证：**cookie**（`sessionKey`，页面内 fetch 自动带，请求加 `credentials:"include"`），无需 token。
+- 账号标识：`GET /api/account` → `email_address`（同接口的 `memberships` 还带组织列表）。
+- **组织 uuid 必须动态选，不可硬编码**：一个登录态可能挂多个组织（如 `['chat']` 聊天组织 +
+  `['api']` API 组织），且**不同账号/登录态 uuid 完全不同**。从 `memberships[].organization`
+  里挑 `capabilities` 含 `'chat'` 的那个；API 组织对 `chat_conversations` 直接返回 **403
+  `Invalid authorization for organization`**。曾因硬编码 uuid 在切换登录态后全部失效，务必每次 `prepare` 重新解析。
+- 会话列表：`GET /api/organizations/{org}/chat_conversations?limit=&offset=`，返回**数组**，
+  按 `updated_at` **降序**（增量提前停止可用）。`limit=50` 翻页，返回 < limit 即到底。
+  字段：`uuid`/`name`/`summary`/`created_at`/`updated_at`/`project_uuid`。
+- 会话详情：`GET .../chat_conversations/{uuid}?tree=True&rendering_mode=messages&render_all_tools=true`
+  → `chat_messages` 已是**线性主线程顺序**，直接按数组序遍历，无需还原树。
+  **正文在 `content[].text`，顶层 `text` 字段多为空**——别只读顶层 text。
+- `content` 块类型：`text` / `thinking`（扩展思考，字段在 `thinking`）/ `tool_use`（`name`+`input`）/
+  `tool_result`（`content` 可能是 str 或 block 数组，需通用抽取）/ `image`。一条 assistant
+  消息常含大量 web_search/bash_tool 往返，渲染时把 tool_result 折叠进 `<details>` 免刷屏。
+- 图片：消息的 `files` / `files_v2`，**只有 `file_kind=='image'` 的带公开 URL**
+  （`preview_url`/`thumbnail_url` = `/api/{org}/files/{uuid}/preview`，相对路径，同源 fetch + credentials）。
+  `file_kind=='blob'`（用户原始上传，如 HEIC）**无任何公开下载 URL**（`/files/{uuid}/contents`、
+  `/preview` 等全 404）——跳过即可，因为用户贴的图通常已有对应的 `image` 版本（Claude 转码后）覆盖。
+  注意 preview 实际返回 `image/webp`，与原文件名 `.jpg`/`.heic` 不符 → 扩展名要按真实 content-type 定，别用文件名后缀。
+- 文本附件：`attachments[].extracted_content` 是**已提取好的纯文本**，直接内嵌 Markdown，无需下载。
+
 ## Gemini（gemini.google.com）
 
 最难的一个：没有干净 REST，用 Google 的 `batchexecute` RPC + SPA DOM 抓取。
